@@ -1,0 +1,35 @@
+[project]
+name = "sleep-ingest"
+version = "0.1.0"
+description = "Import ResMed AirSense 11 SD card data into TimescaleDB"
+readme = "README.md"
+authors = [
+    { name = "Tim Martin", email = "tim@timmart.in" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "psycopg[binary]>=3.3.6",
+]
+
+[project.scripts]
+sleep-ingest = "sleep_ingest.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.4,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+    "ty>=0.0.95",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "B", "SIM"]
+
+[tool.ty.src]
+include = ["src", "tests"]
