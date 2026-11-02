@@ -144,7 +144,8 @@ class TherapyDay:
 def check_data_path(root: Path) -> None:
     identification = json.loads((root / "Identification.json").read_text())
     product = identification["FlowGenerator"]["IdentificationProfiles"]["Product"]
-    if not product["ProductName"].startswith("AirSense11"):
+    # The device writes "AirSense11AutoSet" or "AirSense 11 AutoSet".
+    if not product["ProductName"].replace(" ", "").startswith("AirSense11"):
         raise ValueError(f"{product['ProductName']} is not an AirSense 11")
     if not (root / "STR.edf").is_file():
         raise ValueError("STR.edf is missing")

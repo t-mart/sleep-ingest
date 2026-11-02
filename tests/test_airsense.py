@@ -53,8 +53,9 @@ def test_to_utc_uses_the_offset_from_before_a_daylight_saving_change(local, expe
     assert airsense.to_utc(local, ZoneInfo("America/Chicago")) == expected
 
 
-def test_check_data_path_accepts_an_airsense_11(tmp_path):
-    root = synthetic.write_card(tmp_path)
+@pytest.mark.parametrize("product", ["AirSense11AutoSet", "AirSense 11 AutoSet"])
+def test_check_data_path_accepts_an_airsense_11(tmp_path, product):
+    root = synthetic.write_card(tmp_path, product=product)
     synthetic.write(root, "STR.edf", b"")
 
     airsense.check_data_path(root)
