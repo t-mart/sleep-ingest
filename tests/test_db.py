@@ -201,4 +201,8 @@ def test_file_without_records_is_valid(conn, card):
 
     outcomes = cli.ingest(conn, card, CDT)
 
-    assert [o for o in outcomes if o.path == BRP_PATH] == [cli.Outcome(BRP_PATH)]
+    [outcome] = [o for o in outcomes if o.path == BRP_PATH]
+    assert (outcome.new, outcome.error) == (False, None)
+    assert conn.execute(
+        "SELECT records FROM source_file WHERE path = %s", (BRP_PATH,)
+    ).fetchone() == (0,)

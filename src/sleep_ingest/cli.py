@@ -126,7 +126,8 @@ def _import_datalog(
 ) -> Outcome:
     kind = path[-7:-4]
     layout = airsense.LAYOUTS.get(kind)
-    done = imported.get(path, 0)
+    done = imported.get(path)
+    start = done or 0
     with (root / path).open("rb") as file:
         header = edf.read_header(file)
         if layout:
@@ -137,17 +138,17 @@ def _import_datalog(
                 f"{path}: header gives {header.records} records, file has {count}",
                 file=sys.stderr,
             )
-        if count < done:
-            raise ValueError(f"file has {count} records, {done} were imported")
+        if count < start:
+            raise ValueError(f"file has {count} records, {start} were imported")
         if count == done:
             return Outcome(path)
-        data = edf.read_records(file, header, done, count - done)
+        data = edf.read_records(file, header, start, count - start)
 
     with conn.transaction():
         if layout:
-            series = airsense.series(header, layout, data, done, zone)
+            series = airsense.series(header, layout, data, start, zone)
             rows = {layout.table: db.write_series(conn, layout.table, series)}
         else:
             rows = {"event": db.write_events(conn, airsense.events(header, data, zone))}
         db.set_imported_records(conn, path, count)
-    return Outcome(path, new=True, rows=rows)
+    return Outcome(path, new=count > start, rows=rows)
