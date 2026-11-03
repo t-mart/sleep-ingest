@@ -18,8 +18,8 @@ The `waveform` and `therapy` views show physical values.
 The importer does not read the `SA2` oximetry files.
 
 A therapy day starts at 12:00 device time.
-The device clock has no time zone, so the importer uses `TimeZoneOffset` from `SETTINGS/CurrentSettings.json`.
-To use a different zone, give `--time-zone`.
+The device clock shows local time, but the files do not give its time zone.
+The `TimeZoneOffset` in `SETTINGS/CurrentSettings.json` does not change for daylight saving time, so the importer does not use it.
 
 ## Run
 
@@ -27,6 +27,7 @@ To use a different zone, give `--time-zone`.
 docker run --rm \
   --volume /path/to/sd-card:/data/input:ro \
   --env INPUT_DIR=/data/input \
+  --env TZ=America/Chicago \
   --env PGHOST=db.example --env PGDATABASE=sleep_ingest \
   --env PGUSER=sleep_ingest --env PGPASSWORD=secret \
   tmmrtn/sleep-ingest
@@ -36,9 +37,11 @@ docker run --rm \
 |---|---|---|
 | `--data-path` | `INPUT_DIR` | None. One of the two is necessary. |
 | `--database-url` | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | The libpq defaults. |
-| `--time-zone` | | `TimeZoneOffset` in `SETTINGS/CurrentSettings.json`. |
+| `--time-zone` | `TZ` | None. One of the two is necessary. |
 
 `--time-zone` accepts an IANA zone name, for example `America/Chicago`, or a UTC offset, for example `-05:00`.
+Use a zone name to apply daylight saving time.
+The device can change its clock later than the time change. Then, some times on that night are one hour wrong.
 
 The importer does not write to the data path.
 At the end, it writes a summary to stdout and one line for each failed file to stderr.

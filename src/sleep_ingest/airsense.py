@@ -153,12 +153,6 @@ def check_data_path(root: Path) -> None:
         raise ValueError("DATALOG is missing")
 
 
-def device_time_zone(root: Path) -> str:
-    settings = json.loads((root / "SETTINGS" / "CurrentSettings.json").read_text())
-    features = settings["FlowGenerator"]["SettingProfiles"]["FeatureProfiles"]
-    return features["TimeZoneFeature"]["TimeZoneOffset"]
-
-
 def parse_time_zone(value: str) -> tzinfo:
     """An IANA zone name, or a UTC offset such as -05:00."""
     match = UTC_OFFSET.fullmatch(value)

@@ -59,7 +59,6 @@ def test_check_data_path_accepts_an_airsense_11(tmp_path, product):
     synthetic.write(root, "STR.edf", b"")
 
     airsense.check_data_path(root)
-    assert airsense.device_time_zone(root) == "-05:00"
 
 
 def test_check_data_path_rejects_other_products(tmp_path):

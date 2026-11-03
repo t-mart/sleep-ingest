@@ -44,19 +44,19 @@ def run(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--time-zone",
-        help="IANA zone name or UTC offset of the device clock"
-        " (default: TimeZoneOffset in SETTINGS/CurrentSettings.json)",
+        default=os.environ.get("TZ"),
+        help="IANA zone name or UTC offset of the device clock (default: $TZ)",
     )
     args = parser.parse_args(argv)
     if not args.data_path:
         parser.error("give --data-path or set INPUT_DIR")
+    if not args.time_zone:
+        parser.error("give --time-zone or set TZ")
 
     root = Path(args.data_path)
     try:
         airsense.check_data_path(root)
-        zone = airsense.parse_time_zone(
-            args.time_zone or airsense.device_time_zone(root)
-        )
+        zone = airsense.parse_time_zone(args.time_zone)
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"{root}: {type(error).__name__}: {error}", file=sys.stderr)
         return 2

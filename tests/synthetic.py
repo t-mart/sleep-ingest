@@ -126,22 +126,12 @@ def str_record(
 
 
 def write_card(root: Path, product: str = "AirSense11AutoSet") -> Path:
-    """Identification and settings files, and an empty DATALOG."""
+    """An identification file and an empty DATALOG."""
     _write_json(
         root / "Identification.json",
         {
             "FlowGenerator": {
                 "IdentificationProfiles": {"Product": {"ProductName": product}}
-            }
-        },
-    )
-    _write_json(
-        root / "SETTINGS" / "CurrentSettings.json",
-        {
-            "FlowGenerator": {
-                "SettingProfiles": {
-                    "FeatureProfiles": {"TimeZoneFeature": {"TimeZoneOffset": "-05:00"}}
-                }
             }
         },
     )

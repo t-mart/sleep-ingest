@@ -4,6 +4,7 @@ from sleep_ingest import cli
 from tests import synthetic
 
 NO_DATABASE = ["--database-url", "host=/nonexistent"]
+ZONE = ["--time-zone", "America/Chicago"]
 
 
 def test_help_exits_with_zero(capsys):
@@ -26,14 +27,32 @@ def test_data_path_is_required(monkeypatch):
 def test_data_path_defaults_to_input_dir(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("INPUT_DIR", str(tmp_path))
 
-    assert cli.run(NO_DATABASE) == 2
+    assert cli.run([*ZONE, *NO_DATABASE]) == 2
     assert "Identification.json" in capsys.readouterr().err
+
+
+def test_time_zone_is_required(monkeypatch, tmp_path):
+    monkeypatch.delenv("TZ", raising=False)
+
+    with pytest.raises(SystemExit) as stop:
+        cli.run(["--data-path", str(tmp_path), *NO_DATABASE])
+
+    assert stop.value.code == 2
+
+
+def test_time_zone_defaults_to_tz(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("TZ", "Mars/Olympus_Mons")
+    root = synthetic.write_card(tmp_path)
+    synthetic.write(root, "STR.edf", b"")
+
+    assert cli.run(["--data-path", str(root), *NO_DATABASE]) == 2
+    assert "Mars/Olympus_Mons" in capsys.readouterr().err
 
 
 def test_bad_data_path_stops_before_the_database(tmp_path, capsys):
     root = synthetic.write_card(tmp_path)
 
-    assert cli.run(["--data-path", str(root), *NO_DATABASE]) == 2
+    assert cli.run(["--data-path", str(root), *ZONE, *NO_DATABASE]) == 2
     assert "STR.edf is missing" in capsys.readouterr().err
 
 
