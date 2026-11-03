@@ -44,7 +44,8 @@ Use a zone name to apply daylight saving time.
 The device can change its clock later than the time change. Then, some times on that night are one hour wrong.
 
 The importer does not write to the data path.
-At the end, it writes a summary to stdout and one line for each failed file to stderr.
+For each file with new records or an error, it writes one line to stderr, for example `[12/383] DATALOG/20261102/20261103_004817_PLD.edf: 15720 rows in therapy_raw`.
+At the end, it writes a summary to stdout.
 
 | Exit code | Meaning |
 |---|---|

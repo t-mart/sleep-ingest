@@ -65,7 +65,17 @@ def test_unknown_time_zone_stops_before_the_database(tmp_path, capsys):
     assert "Mars/Olympus_Mons" in capsys.readouterr().err
 
 
-def test_report_gives_failures_and_totals(capsys):
+def test_describe_gives_rows_or_the_error():
+    rows = {"daily_summary": 2, "mask_session": 3}
+    assert cli.describe(cli.Outcome("STR.edf", new=True, rows=rows)) == (
+        "STR.edf: 2 rows in daily_summary, 3 rows in mask_session"
+    )
+    assert cli.describe(cli.Outcome("a_EVE.edf", error="bad header")) == (
+        "a_EVE.edf: bad header"
+    )
+
+
+def test_report_gives_totals(capsys):
     cli.report(
         [
             cli.Outcome("STR.edf", new=True, rows={"daily_summary": 2}),
@@ -75,9 +85,7 @@ def test_report_gives_failures_and_totals(capsys):
         ]
     )
 
-    out, err = capsys.readouterr()
-    assert err == "DATALOG/a_EVE.edf: bad header\n"
-    assert out == (
+    assert capsys.readouterr().out == (
         "Files with new records: 2\n"
         "Files without new records: 1\n"
         "Failed files: 1\n"

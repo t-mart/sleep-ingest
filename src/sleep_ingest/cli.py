@@ -76,19 +76,30 @@ def run(argv: list[str]) -> int:
 
 def ingest(conn: psycopg.Connection, root: Path, zone: tzinfo) -> list[Outcome]:
     imported = db.imported_records(conn)
-    return [
-        _attempt("STR.edf", partial(_import_str, conn, root, zone)),
+    actions = [
+        ("STR.edf", partial(_import_str, conn, root, zone)),
         *(
-            _attempt(path, partial(_import_datalog, conn, root, path, zone, imported))
+            (path, partial(_import_datalog, conn, root, path, zone, imported))
             for path in airsense.datalog_files(root)
         ),
     ]
+    outcomes = []
+    for number, (path, action) in enumerate(actions, start=1):
+        outcome = _attempt(path, action)
+        if outcome.new or outcome.error:
+            print(f"[{number}/{len(actions)}] {describe(outcome)}", file=sys.stderr)
+        outcomes.append(outcome)
+    return outcomes
+
+
+def describe(outcome: Outcome) -> str:
+    if outcome.error:
+        return f"{outcome.path}: {outcome.error}"
+    rows = ", ".join(f"{n} rows in {table}" for table, n in outcome.rows.items())
+    return f"{outcome.path}: {rows}"
 
 
 def report(outcomes: list[Outcome]) -> None:
-    for outcome in outcomes:
-        if outcome.error:
-            print(f"{outcome.path}: {outcome.error}", file=sys.stderr)
     rows = sum((Counter(outcome.rows) for outcome in outcomes), Counter())
     succeeded = [outcome for outcome in outcomes if not outcome.error]
     print(f"Files with new records: {sum(o.new for o in succeeded)}")
