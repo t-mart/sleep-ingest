@@ -75,7 +75,7 @@ def test_therapy_times_gives_the_minutes_in_each_period(conn, card):
     cursor = conn.execute(trends_query("Therapy times"))
     [row] = cursor.fetchall()
     cells = dict(zip([column.name for column in cursor.description], row, strict=True))
-    expected = {"12:00": 0, "23:30": 1, "23:45": 15, "06:15": 9, "06:30": 0}
+    expected = {"Noon": 0, "23:30": 1, "23:45": 15, "06:15": 9, "06:30": 0}
     assert cells["time"] == datetime(2026, 9, 23, 17, tzinfo=UTC)
     assert {name: cells[name] for name in expected} == expected
 
