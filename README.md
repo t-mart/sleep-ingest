@@ -74,7 +74,7 @@ To change the schema, drop the tables and import the files again.
 
 | File | Contents |
 |---|---|
-| [`dashboards/trends.json`](dashboards/trends.json) | Nightly usage, AHI, leak, pressure, and breathing, with a table of nights and setting changes. |
+| [`dashboards/trends.json`](dashboards/trends.json) | Nightly usage, AHI, leak, pressure, and breathing, with a table of nights and setting changes. Mask-on times for each night and a sleep regularity index. |
 | [`dashboards/night.json`](dashboards/night.json) | One night: flow rate, pressure, leak, flow limitation, snore, and breathing, with events as annotations. |
 
 The dashboards use a PostgreSQL datasource with the UID `sleep_ingest_timescaledb`.

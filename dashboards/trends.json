@@ -598,12 +598,139 @@
       "description": "Events for each hour of use, by type, as the device reports them. The dashed line is 5 events per hour."
     },
     {
+      "id": 16,
+      "gridPos": {
+        "h": 12,
+        "w": 20,
+        "x": 0,
+        "y": 12
+      },
+      "type": "heatmap",
+      "title": "Therapy times",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "sleep_ingest_timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "calculate": false,
+        "cellGap": 0,
+        "cellValues": {
+          "unit": "m",
+          "decimals": 0
+        },
+        "color": {
+          "mode": "opacity",
+          "fill": "#3987e5",
+          "scale": "linear",
+          "exponent": 0.5,
+          "steps": 64,
+          "reverse": false,
+          "min": 0,
+          "max": 15
+        },
+        "filterValues": {
+          "le": 1e-09
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "unknown",
+          "value": "Mask on"
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": false,
+          "showColorScale": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "reverse": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "sleep_ingest_timescaledb"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "rawSql": "WITH session AS (\n  SELECT day,\n    extract(epoch FROM (mask_on AT TIME ZONE ${TimeZone:sqlstring}) - (day + time '12:00')) / 60 AS on_min,\n    extract(epoch FROM (coalesce(mask_off, mask_on) AT TIME ZONE ${TimeZone:sqlstring}) - (day + time '12:00')) / 60 AS off_min\n  FROM mask_session\n  WHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\n), period AS (\n  SELECT day, k, sum(greatest(least(off_min, 15 * k + 15) - greatest(on_min, 15 * k), 0)) AS minutes\n  FROM session CROSS JOIN generate_series(0, 95) AS k\n  GROUP BY day, k\n), night AS (\n  SELECT day, array_agg(minutes ORDER BY k) AS m FROM period GROUP BY day\n)\nSELECT (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} AS time,\n  m[1] AS \"12:00\", m[2] AS \"12:15\", m[3] AS \"12:30\", m[4] AS \"12:45\", m[5] AS \"13:00\", m[6] AS \"13:15\", m[7] AS \"13:30\", m[8] AS \"13:45\",\n  m[9] AS \"14:00\", m[10] AS \"14:15\", m[11] AS \"14:30\", m[12] AS \"14:45\", m[13] AS \"15:00\", m[14] AS \"15:15\", m[15] AS \"15:30\", m[16] AS \"15:45\",\n  m[17] AS \"16:00\", m[18] AS \"16:15\", m[19] AS \"16:30\", m[20] AS \"16:45\", m[21] AS \"17:00\", m[22] AS \"17:15\", m[23] AS \"17:30\", m[24] AS \"17:45\",\n  m[25] AS \"18:00\", m[26] AS \"18:15\", m[27] AS \"18:30\", m[28] AS \"18:45\", m[29] AS \"19:00\", m[30] AS \"19:15\", m[31] AS \"19:30\", m[32] AS \"19:45\",\n  m[33] AS \"20:00\", m[34] AS \"20:15\", m[35] AS \"20:30\", m[36] AS \"20:45\", m[37] AS \"21:00\", m[38] AS \"21:15\", m[39] AS \"21:30\", m[40] AS \"21:45\",\n  m[41] AS \"22:00\", m[42] AS \"22:15\", m[43] AS \"22:30\", m[44] AS \"22:45\", m[45] AS \"23:00\", m[46] AS \"23:15\", m[47] AS \"23:30\", m[48] AS \"23:45\",\n  m[49] AS \"00:00\", m[50] AS \"00:15\", m[51] AS \"00:30\", m[52] AS \"00:45\", m[53] AS \"01:00\", m[54] AS \"01:15\", m[55] AS \"01:30\", m[56] AS \"01:45\",\n  m[57] AS \"02:00\", m[58] AS \"02:15\", m[59] AS \"02:30\", m[60] AS \"02:45\", m[61] AS \"03:00\", m[62] AS \"03:15\", m[63] AS \"03:30\", m[64] AS \"03:45\",\n  m[65] AS \"04:00\", m[66] AS \"04:15\", m[67] AS \"04:30\", m[68] AS \"04:45\", m[69] AS \"05:00\", m[70] AS \"05:15\", m[71] AS \"05:30\", m[72] AS \"05:45\",\n  m[73] AS \"06:00\", m[74] AS \"06:15\", m[75] AS \"06:30\", m[76] AS \"06:45\", m[77] AS \"07:00\", m[78] AS \"07:15\", m[79] AS \"07:30\", m[80] AS \"07:45\",\n  m[81] AS \"08:00\", m[82] AS \"08:15\", m[83] AS \"08:30\", m[84] AS \"08:45\", m[85] AS \"09:00\", m[86] AS \"09:15\", m[87] AS \"09:30\", m[88] AS \"09:45\",\n  m[89] AS \"10:00\", m[90] AS \"10:15\", m[91] AS \"10:30\", m[92] AS \"10:45\", m[93] AS \"11:00\", m[94] AS \"11:15\", m[95] AS \"11:30\", m[96] AS \"11:45\"\nFROM night\nORDER BY 1",
+          "format": "table"
+        }
+      ],
+      "description": "Each column is a night, from 12:00 to 12:00 the next day. A cell shows the minutes with the mask on in its 15-minute period."
+    },
+    {
+      "id": 17,
+      "gridPos": {
+        "h": 12,
+        "w": 4,
+        "x": 20,
+        "y": 12
+      },
+      "type": "stat",
+      "title": "Sleep regularity index",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "sleep_ingest_timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "decimals": 0,
+          "min": -100,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "sleep_ingest_timescaledb"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "rawSql": "WITH session AS (\n  SELECT day,\n    mask_on AT TIME ZONE ${TimeZone:sqlstring} AS mask_on,\n    coalesce(mask_off, mask_on) AT TIME ZONE ${TimeZone:sqlstring} AS mask_off\n  FROM mask_session\n  WHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\n), next_day AS (\n  SELECT mask_on - interval '1 day' AS mask_on, mask_off - interval '1 day' AS mask_off FROM session\n), span AS (\n  SELECT min(day) + time '12:00' AS first_noon, max(day) + time '12:00' AS last_noon FROM session\n)\nSELECT 100 - 200 * extract(epoch FROM\n    (SELECT sum(greatest(least(mask_off, last_noon) - greatest(mask_on, first_noon), interval '0')) FROM session)\n  + (SELECT sum(greatest(least(mask_off, last_noon) - greatest(mask_on, first_noon), interval '0')) FROM next_day)\n  - 2 * (SELECT sum(greatest(least(s.mask_off, n.mask_off, last_noon) - greatest(s.mask_on, n.mask_on, first_noon), interval '0'))\n    FROM session AS s, next_day AS n)\n) / NULLIF(extract(epoch FROM last_noon - first_noon), 0) AS \"Sleep regularity index\"\nFROM span",
+          "format": "table"
+        }
+      ],
+      "description": "The panel compares the mask state at each minute with the state at the same clock time on the next day. 100 means the same times every day, and 0 means no pattern. Days without therapy count as mask off."
+    },
+    {
       "id": 9,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 12
+        "y": 24
       },
       "type": "timeseries",
       "title": "Leak",
@@ -732,7 +859,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 12
+        "y": 24
       },
       "type": "timeseries",
       "title": "Mask pressure",
@@ -856,7 +983,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 20
+        "y": 32
       },
       "type": "timeseries",
       "title": "Breathing rate, median",
@@ -933,7 +1060,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 20
+        "y": 32
       },
       "type": "timeseries",
       "title": "Tidal volume, median",
@@ -1010,7 +1137,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 20
+        "y": 32
       },
       "type": "timeseries",
       "title": "Minute ventilation, median",
@@ -1087,7 +1214,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 28
+        "y": 40
       },
       "type": "table",
       "title": "Nights",
@@ -1258,7 +1385,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 40
+        "y": 52
       },
       "type": "table",
       "title": "Setting changes",
