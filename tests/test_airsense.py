@@ -1,7 +1,6 @@
 import io
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -28,29 +27,32 @@ def pld_record(flow_lim: int) -> list[list[int]]:
     [
         ("-05:00", CDT),
         ("+0530", timezone(timedelta(hours=5, minutes=30))),
-        ("America/Chicago", ZoneInfo("America/Chicago")),
     ],
 )
 def test_parse_time_zone(value, expected):
     assert airsense.parse_time_zone(value) == expected
 
 
-def test_parse_time_zone_rejects_unknown_names():
-    with pytest.raises(KeyError):
-        airsense.parse_time_zone("Mars/Olympus_Mons")
+@pytest.mark.parametrize("value", ["America/Chicago", "-05:60", "+24:00", "UTC"])
+def test_parse_time_zone_rejects_names_and_invalid_offsets(value):
+    with pytest.raises(ValueError):
+        airsense.parse_time_zone(value)
 
 
 @pytest.mark.parametrize(
-    ("local", "expected"),
+    "local",
     [
-        # Ambiguous: 01:30 happens twice. Use the offset from before the change.
-        (datetime(2026, 11, 1, 1, 30), datetime(2026, 11, 1, 6, 30, tzinfo=UTC)),
-        # Absent: 02:30 does not happen. Use the offset from before the change.
-        (datetime(2026, 3, 8, 2, 30), datetime(2026, 3, 8, 8, 30, tzinfo=UTC)),
+        datetime(2026, 10, 31, 23),
+        datetime(2026, 11, 1, 1, 30),
+        datetime(2026, 11, 2, 23),
+        datetime(2026, 3, 8, 2, 30),
     ],
 )
-def test_to_utc_uses_the_offset_from_before_a_daylight_saving_change(local, expected):
-    assert airsense.to_utc(local, ZoneInfo("America/Chicago")) == expected
+def test_device_offset_stays_fixed_across_dst(tmp_path, local):
+    root = synthetic.write_card(tmp_path)
+    assert airsense.to_utc(local, airsense.device_time_zone(root)) == (
+        local + timedelta(hours=5)
+    ).replace(tzinfo=UTC)
 
 
 @pytest.mark.parametrize("product", ["AirSense11AutoSet", "AirSense 11 AutoSet"])

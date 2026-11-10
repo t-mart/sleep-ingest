@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import psycopg
 import pytest
@@ -206,3 +206,70 @@ def test_file_without_records_is_valid(conn, card):
     assert conn.execute(
         "SELECT records FROM source_file WHERE path = %s", (BRP_PATH,)
     ).fetchone() == (0,)
+
+
+def test_offset_change_requires_rebuild(conn, card):
+    cli.ingest(conn, card, CDT)
+    with pytest.raises(ValueError, match="offset changed"):
+        cli.ingest(conn, card, timezone(timedelta(hours=-6)))
+    assert conn.execute("SELECT min(time) FROM waveform_raw").fetchone() == (
+        FIRST_SAMPLE,
+    )
+
+
+def test_legacy_data_requires_rebuild(conn, card):
+    cli.ingest(conn, card, CDT)
+    conn.execute("DELETE FROM import_clock")
+    with pytest.raises(ValueError, match="no offset record"):
+        cli.ingest(conn, card, CDT)
+
+
+def test_rebuild_replaces_timestamps_without_duplicates(conn, card):
+    cli.ingest(conn, card, timezone(timedelta(hours=-6)))
+    outcomes = cli.ingest(conn, card, CDT, rebuild=True)
+    assert not any(o.error for o in outcomes)
+    assert count(conn, "waveform_raw") == 3000
+    assert conn.execute("SELECT min(time) FROM waveform_raw").fetchone() == (
+        FIRST_SAMPLE,
+    )
+    assert conn.execute("SELECT day_start FROM daily_summary").fetchone() == (
+        datetime(2026, 9, 23, 17, tzinfo=UTC),
+    )
+    assert conn.execute("SELECT offset_seconds FROM import_clock").fetchone() == (
+        -18000,
+    )
+    assert not any(o.new for o in cli.ingest(conn, card, CDT))
+
+
+def test_failed_rebuild_preserves_previous_data(conn, card):
+    old_zone = timezone(timedelta(hours=-6))
+    cli.ingest(conn, card, old_zone)
+    synthetic.write(
+        card, PLD_PATH, synthetic.edf(START, synthetic.BRP, [brp_record(1)])
+    )
+    with pytest.raises(ValueError, match="rebuild failed"):
+        cli.ingest(conn, card, CDT, rebuild=True)
+    assert conn.execute("SELECT min(time) FROM waveform_raw").fetchone() == (
+        FIRST_SAMPLE + timedelta(hours=1),
+    )
+    assert count(conn, "therapy_raw") == 30
+    assert conn.execute("SELECT offset_seconds FROM import_clock").fetchone() == (
+        -21600,
+    )
+
+
+@pytest.mark.parametrize("missing", ["file", "records", "day"])
+def test_rebuild_requires_complete_archive(conn, card, missing):
+    cli.ingest(conn, card, CDT)
+    if missing == "file":
+        (card / BRP_PATH).unlink()
+    elif missing == "records":
+        synthetic.write(card, BRP_PATH, synthetic.edf(START, synthetic.BRP, []))
+    else:
+        synthetic.write(
+            card, "STR.edf", synthetic.edf(START, synthetic.STR, [], duration=86400)
+        )
+    with pytest.raises((OSError, ValueError)):
+        cli.ingest(conn, card, CDT, rebuild=True)
+    assert count(conn, "waveform_raw") == 3000
+    assert count(conn, "daily_summary") == 1

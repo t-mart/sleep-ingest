@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta, timezone, tzinfo
 from itertools import chain
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from sleep_ingest import edf
 
@@ -136,6 +135,7 @@ class MaskSession:
 @dataclass(frozen=True)
 class TherapyDay:
     day: date
+    start: datetime
     values: dict[str, float | None]  # daily_summary columns
     settings: dict[str, float | None]
     sessions: tuple[MaskSession, ...]
@@ -153,19 +153,30 @@ def check_data_path(root: Path) -> None:
         raise ValueError("DATALOG is missing")
 
 
-def parse_time_zone(value: str) -> tzinfo:
-    """An IANA zone name, or a UTC offset such as -05:00."""
+def device_time_zone(root: Path) -> timezone:
+    settings = json.loads((root / "SETTINGS" / "CurrentSettings.json").read_text())
+    features = settings["FlowGenerator"]["SettingProfiles"]["FeatureProfiles"]
+    return parse_time_zone(features["TimeZoneFeature"]["TimeZoneOffset"])
+
+
+def parse_time_zone(value: str) -> timezone:
+    """A fixed UTC offset such as -05:00."""
     match = UTC_OFFSET.fullmatch(value)
     if not match:
-        return ZoneInfo(value)
+        raise ValueError("use a fixed UTC offset such as -05:00")
     sign, hours, minutes = match.groups()
+    if int(hours) > 23 or int(minutes) > 59:
+        raise ValueError(f"invalid UTC offset: {value}")
     offset = timedelta(hours=int(hours), minutes=int(minutes))
     return timezone(-offset if sign == "-" else offset)
 
 
 def to_utc(local: datetime, zone: tzinfo) -> datetime:
-    # fold=0 takes the UTC offset from before a daylight saving time change.
-    return local.replace(tzinfo=zone, fold=0).astimezone(UTC)
+    first = local.replace(tzinfo=zone, fold=0)
+    second = local.replace(tzinfo=zone, fold=1)
+    if first.utcoffset() != second.utcoffset():
+        raise ValueError(f"ambiguous or nonexistent source time: {local} ({zone})")
+    return first.astimezone(UTC)
 
 
 def datalog_files(root: Path) -> list[str]:
@@ -225,7 +236,13 @@ def events(header: edf.Header, data: bytes, zone: tzinfo) -> list[Event]:
     ]
 
 
-def therapy_days(header: edf.Header, data: bytes, zone: tzinfo) -> list[TherapyDay]:
+def therapy_days(
+    header: edf.Header,
+    data: bytes,
+    zone: tzinfo,
+    *,
+    device_zone: timezone | None = None,
+) -> list[TherapyDay]:
     labels = [signal.label for signal in header.signals]
     missing = STR_LABELS.difference(labels)
     if missing:
@@ -239,33 +256,52 @@ def therapy_days(header: edf.Header, data: bytes, zone: tzinfo) -> list[TherapyD
     ]
     return [
         _therapy_day(
-            {label: column[record] for label, column in values.items()}, settings, zone
+            {label: column[record] for label, column in values.items()},
+            settings,
+            zone,
+            device_zone or zone,
         )
         for record in range(len(values["Date"]))
     ]
 
 
 def _therapy_day(
-    record: dict[str, list[float | None]], settings: list[str], zone: tzinfo
+    record: dict[str, list[float | None]],
+    settings: list[str],
+    zone: tzinfo,
+    device_zone: tzinfo,
 ) -> TherapyDay:
     day = date(1970, 1, 1) + timedelta(days=_required(record["Date"][0], "Date"))
     noon = to_utc(datetime.combine(day, time(12)), zone)
+    sessions = tuple(
+        MaskSession(
+            day,
+            slot,
+            noon + timedelta(minutes=on),
+            None if off is None else noon + timedelta(minutes=off),
+        )
+        for slot, (on, off) in enumerate(
+            zip(record["MaskOn"], record["MaskOff"], strict=True)
+        )
+        if on is not None
+    )
+    duration = _required(record["Duration"][0], "Duration")
+    closed = [s for s in sessions if s.mask_off is not None]
+    minutes = sum(
+        (s.mask_off - s.mask_on).total_seconds() / 60
+        for s in closed
+        if s.mask_off is not None
+    )
+    if minutes > duration + len(closed) or any(
+        s.mask_off < s.mask_on for s in closed if s.mask_off is not None
+    ):
+        sessions = ()
     return TherapyDay(
         day=day,
+        start=to_utc(datetime.combine(day, time(12)), device_zone),
         values={column: record[label][0] for label, column in DAILY_COLUMNS.items()},
         settings={label: record[label][0] for label in settings},
-        sessions=tuple(
-            MaskSession(
-                day,
-                slot,
-                noon + timedelta(minutes=on),
-                None if off is None else noon + timedelta(minutes=off),
-            )
-            for slot, (on, off) in enumerate(
-                zip(record["MaskOn"], record["MaskOff"], strict=True)
-            )
-            if on is not None
-        ),
+        sessions=sessions,
     )
 
 

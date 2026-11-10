@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS event (
 -- STR.edf, one row per therapy day.
 CREATE TABLE IF NOT EXISTS daily_summary (
   day          date PRIMARY KEY,
+  day_start    timestamptz,
   duration_min smallint NOT NULL,
   mask_events  smallint NOT NULL,
   ahi real, hi real, ai real, oai real, cai real, uai real, rin real, csr_min real,
@@ -72,6 +73,7 @@ CREATE TABLE IF NOT EXISTS daily_summary (
   amb_humidity_50 real, hum_temp_50 real, htube_temp_50 real, htube_pow_50 real, hum_pow_50 real,
   settings jsonb NOT NULL  -- Mode, S.*, HeatedTube, Humidifier; keys are EDF labels
 );
+ALTER TABLE daily_summary ADD COLUMN IF NOT EXISTS day_start timestamptz;
 
 -- STR.edf MaskOn and MaskOff samples. A slot can have mask_on = mask_off.
 CREATE TABLE IF NOT EXISTS mask_session (
@@ -86,4 +88,10 @@ CREATE TABLE IF NOT EXISTS mask_session (
 CREATE TABLE IF NOT EXISTS source_file (
   path    text PRIMARY KEY,  -- relative to the data path
   records integer NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS import_clock (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  offset_seconds integer NOT NULL CHECK (abs(offset_seconds) < 86400),
+  source_time_zone text NOT NULL
 );

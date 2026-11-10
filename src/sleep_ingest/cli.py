@@ -6,9 +6,10 @@ import sys
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import tzinfo
+from datetime import timezone, tzinfo
 from functools import partial
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import psycopg
 
@@ -44,19 +45,31 @@ def run(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--time-zone",
-        default=os.environ.get("TZ"),
-        help="IANA zone name or UTC offset of the device clock (default: $TZ)",
+        help="fixed device UTC offset (default: TimeZoneOffset in CurrentSettings.json)",
+    )
+    parser.add_argument(
+        "--export-time-zone",
+        default=os.environ.get("EXPORT_TIME_ZONE"),
+        help="SomnoTrace export IANA zone (default: $EXPORT_TIME_ZONE; otherwise device time)",
+    )
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="replace all imported data from a complete card archive; roll back on error",
     )
     args = parser.parse_args(argv)
     if not args.data_path:
         parser.error("give --data-path or set INPUT_DIR")
-    if not args.time_zone:
-        parser.error("give --time-zone or set TZ")
 
     root = Path(args.data_path)
     try:
         airsense.check_data_path(root)
-        zone = airsense.parse_time_zone(args.time_zone)
+        device_zone = (
+            airsense.parse_time_zone(args.time_zone)
+            if args.time_zone
+            else airsense.device_time_zone(root)
+        )
+        zone = ZoneInfo(args.export_time_zone) if args.export_time_zone else device_zone
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"{root}: {type(error).__name__}: {error}", file=sys.stderr)
         return 2
@@ -65,8 +78,10 @@ def run(argv: list[str]) -> int:
         with psycopg.connect(args.database_url, autocommit=True) as conn:
             with conn.transaction():
                 db.create_schema(conn)
-            outcomes = ingest(conn, root, zone)
-    except psycopg.Error as error:
+            outcomes = ingest(
+                conn, root, zone, device_zone=device_zone, rebuild=args.rebuild
+            )
+    except (psycopg.Error, OSError, ValueError) as error:
         print(f"database: {error}", file=sys.stderr)
         return 2
 
@@ -74,10 +89,31 @@ def run(argv: list[str]) -> int:
     return 1 if any(outcome.error for outcome in outcomes) else 0
 
 
-def ingest(conn: psycopg.Connection, root: Path, zone: tzinfo) -> list[Outcome]:
+def ingest(
+    conn: psycopg.Connection,
+    root: Path,
+    zone: tzinfo,
+    *,
+    device_zone: timezone | None = None,
+    rebuild: bool = False,
+) -> list[Outcome]:
+    if device_zone is None:
+        device_zone = (
+            zone if isinstance(zone, timezone) else airsense.device_time_zone(root)
+        )
+    if rebuild:
+        with conn.transaction():
+            _check_archive(conn, root, zone)
+            db.reset_import(conn)
+            outcomes = ingest(conn, root, zone, device_zone=device_zone)
+            if any(outcome.error for outcome in outcomes):
+                raise ValueError("rebuild failed; all previous data remains unchanged")
+            return outcomes
+    with conn.transaction():
+        db.check_import_offset(conn, zone, device_zone)
     imported = db.imported_records(conn)
     actions = [
-        ("STR.edf", partial(_import_str, conn, root, zone)),
+        ("STR.edf", partial(_import_str, conn, root, zone, device_zone)),
         *(
             (path, partial(_import_datalog, conn, root, path, zone, imported))
             for path in airsense.datalog_files(root)
@@ -90,6 +126,23 @@ def ingest(conn: psycopg.Connection, root: Path, zone: tzinfo) -> list[Outcome]:
             print(f"[{number}/{len(actions)}] {describe(outcome)}", file=sys.stderr)
         outcomes.append(outcome)
     return outcomes
+
+
+def _check_archive(conn: psycopg.Connection, root: Path, zone: tzinfo) -> None:
+    for path, records in db.imported_records(conn).items():
+        with (root / path).open("rb") as file:
+            header = edf.read_header(file)
+            count = edf.complete_records(header, os.fstat(file.fileno()).st_size)
+        if count < records:
+            raise ValueError(
+                f"incomplete archive: {path} has {count} of {records} records"
+            )
+    days = {day.day for day in _read_str(root, zone)}
+    stored = {day for (day,) in conn.execute("SELECT day FROM daily_summary")}
+    if missing := stored - days:
+        raise ValueError(
+            f"incomplete archive: STR.edf lacks {len(missing)} stored days"
+        )
 
 
 def describe(outcome: Outcome) -> str:
@@ -117,15 +170,29 @@ def _attempt(path: str, action: Callable[[], Outcome]) -> Outcome:
         return Outcome(path, error=str(error) or repr(error))
 
 
-def _import_str(conn: psycopg.Connection, root: Path, zone: tzinfo) -> Outcome:
+def _import_str(
+    conn: psycopg.Connection, root: Path, zone: tzinfo, device_zone: timezone
+) -> Outcome:
+    days = _read_str(root, zone, device_zone)
+    for day in days:
+        if day.values["duration_min"] and not day.sessions:
+            print(
+                f"STR.edf {day.day}: mask times unavailable or inconsistent; summary retained",
+                file=sys.stderr,
+            )
+    with conn.transaction():
+        rows = db.write_therapy_days(conn, days)
+    return Outcome("STR.edf", new=any(rows.values()), rows=rows)
+
+
+def _read_str(
+    root: Path, zone: tzinfo, device_zone: timezone | None = None
+) -> list[airsense.TherapyDay]:
     with (root / "STR.edf").open("rb") as file:
         header = edf.read_header(file)
         count = edf.complete_records(header, os.fstat(file.fileno()).st_size)
         data = edf.read_records(file, header, 0, count)
-    days = airsense.therapy_days(header, data, zone)
-    with conn.transaction():
-        rows = db.write_therapy_days(conn, days)
-    return Outcome("STR.edf", new=any(rows.values()), rows=rows)
+    return airsense.therapy_days(header, data, zone, device_zone=device_zone)
 
 
 def _import_datalog(

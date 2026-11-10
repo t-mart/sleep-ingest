@@ -1,5 +1,6 @@
 """Schema and writes. The caller owns the transactions."""
 
+from datetime import timezone, tzinfo
 from importlib.resources import files
 
 import psycopg
@@ -13,6 +14,48 @@ SCHEMA = files(__package__).joinpath("schema.sql").read_bytes()
 
 def create_schema(conn: psycopg.Connection) -> None:
     conn.execute(SCHEMA)
+
+
+def reset_import(conn: psycopg.Connection) -> None:
+    conn.execute(
+        "TRUNCATE waveform_raw, therapy_raw, event, mask_session, daily_summary,"
+        " source_file, import_clock"
+    )
+
+
+def check_import_offset(
+    conn: psycopg.Connection, zone: tzinfo, device_zone: timezone
+) -> None:
+    seconds = int(device_zone.utcoffset(None).total_seconds())
+    conn.execute("LOCK TABLE import_clock IN EXCLUSIVE MODE")
+    row = conn.execute(
+        "SELECT offset_seconds, source_time_zone FROM import_clock"
+    ).fetchone()
+    if row:
+        if row != (seconds, str(zone)):
+            raise ValueError(
+                "device offset changed or export zone changed; use a separate database or --rebuild"
+            )
+        return
+    for table in (
+        "source_file",
+        "daily_summary",
+        "mask_session",
+        "waveform_raw",
+        "therapy_raw",
+        "event",
+    ):
+        [exists] = conn.execute(
+            sql.SQL("SELECT EXISTS (SELECT 1 FROM {})").format(sql.Identifier(table))
+        ).fetchone() or (False,)
+        if exists:
+            raise ValueError(
+                "stored timestamps have no offset record; use --rebuild with a complete archive"
+            )
+    conn.execute(
+        "INSERT INTO import_clock (offset_seconds, source_time_zone) VALUES (%s, %s)",
+        (seconds, str(zone)),
+    )
 
 
 def imported_records(conn: psycopg.Connection) -> dict[str, int]:
@@ -73,7 +116,7 @@ def write_therapy_days(
     """Insert or update days and sessions. Unchanged rows are not written."""
     if not days:
         return {"daily_summary": 0, "mask_session": 0}
-    names = ["day", *days[0].values, "settings"]
+    names = ["day", "day_start", *days[0].values, "settings"]
     daily = sql.SQL(
         "INSERT INTO daily_summary ({}) VALUES ({}) ON CONFLICT (day) DO UPDATE"
         " SET {} WHERE daily_summary IS DISTINCT FROM EXCLUDED"
@@ -88,9 +131,22 @@ def write_therapy_days(
     with conn.cursor() as cur:
         cur.executemany(
             daily,
-            [{"day": d.day, **d.values, "settings": Jsonb(d.settings)} for d in days],
+            [
+                {
+                    "day": d.day,
+                    "day_start": d.start,
+                    **d.values,
+                    "settings": Jsonb(d.settings),
+                }
+                for d in days
+            ],
         )
         daily_rows = cur.rowcount
+        cur.executemany(
+            "DELETE FROM mask_session WHERE day = %s AND NOT (slot = ANY(%s::smallint[]))",
+            [(d.day, [s.slot for s in d.sessions]) for d in days],
+        )
+        removed_sessions = cur.rowcount
         cur.executemany(
             "INSERT INTO mask_session (day, slot, mask_on, mask_off)"
             " VALUES (%s, %s, %s, %s) ON CONFLICT (day, slot) DO UPDATE"
@@ -98,4 +154,7 @@ def write_therapy_days(
             " WHERE mask_session IS DISTINCT FROM EXCLUDED",
             [(s.day, s.slot, s.mask_on, s.mask_off) for d in days for s in d.sessions],
         )
-        return {"daily_summary": daily_rows, "mask_session": cur.rowcount}
+        return {
+            "daily_summary": daily_rows,
+            "mask_session": removed_sessions + cur.rowcount,
+        }

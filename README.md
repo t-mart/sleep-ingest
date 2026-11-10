@@ -18,8 +18,26 @@ The `waveform` and `therapy` views show physical values.
 The importer does not read the `SA2` oximetry files.
 
 A therapy day starts at 12:00 device time.
-The device clock shows local time, but the files do not give its time zone.
-The `TimeZoneOffset` in `SETTINGS/CurrentSettings.json` does not change for daylight saving time, so the importer does not use it.
+The device clock uses a fixed UTC offset.
+The importer reads `TimeZoneOffset` from `SETTINGS/CurrentSettings.json` on each run.
+This offset defines the device therapy dates and the timestamps on a native SD card.
+The importer does not use `TZ`.
+
+SomnoTrace exports use its configured timezone for EDF timestamps and mask minutes.
+Its therapy dates still follow the device offset.
+For SomnoTrace exports, set `EXPORT_TIME_ZONE` to its configured IANA zone, such as `America/Chicago`.
+The importer applies seasonal clock changes only to that export timezone.
+The device offset remains fixed.
+
+EDF timestamps do not contain a standard timezone field.
+`CurrentSettings.json` describes the device offset, not the SomnoTrace export timezone.
+Historical files require the export timezone that applied when SomnoTrace wrote them.
+For archives from different clock configurations, use separate databases.
+Ambiguous or nonexistent source timestamps fail the file import; EDF cannot identify the repeated hour.
+
+At `-05:00`, device noon is 17:00 UTC throughout the year.
+In Chicago, that is noon during daylight time and 11:00 during standard time.
+The importer stores UTC timestamps. Grafana converts them to the display zone.
 
 ## Run
 
@@ -27,7 +45,6 @@ The `TimeZoneOffset` in `SETTINGS/CurrentSettings.json` does not change for dayl
 docker run --rm \
   --volume /path/to/sd-card:/data/input:ro \
   --env INPUT_DIR=/data/input \
-  --env TZ=America/Chicago \
   --env PGHOST=db.example --env PGDATABASE=sleep_ingest \
   --env PGUSER=sleep_ingest --env PGPASSWORD=secret \
   tmmrtn/sleep-ingest
@@ -37,11 +54,13 @@ docker run --rm \
 |---|---|---|
 | `--data-path` | `INPUT_DIR` | None. One of the two is necessary. |
 | `--database-url` | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | The libpq defaults. |
-| `--time-zone` | `TZ` | None. One of the two is necessary. |
+| `--time-zone` | | `TimeZoneOffset` in `SETTINGS/CurrentSettings.json`. |
+| `--export-time-zone` | `EXPORT_TIME_ZONE` | None. Native device timestamps. |
+| `--rebuild` | | False. |
 
-`--time-zone` accepts an IANA zone name, for example `America/Chicago`, or a UTC offset, for example `-05:00`.
-Use a zone name to apply daylight saving time.
-The device can change its clock later than the time change. Then, some times on that night are one hour wrong.
+To override the device offset, use `--time-zone=-05:00`.
+The option accepts only fixed UTC offsets.
+For SomnoTrace exports, also give `--export-time-zone=America/Chicago` or set `EXPORT_TIME_ZONE`.
 
 The importer does not write to the data path.
 For each file with new records or an error, it writes one line to stderr, for example `[12/383] DATALOG/20261102/20261103_004817_PLD.edf: 15720 rows in therapy_raw`.
@@ -63,12 +82,38 @@ The rows of a file and its new record count commit in one transaction.
 Primary keys also prevent duplicates.
 The importer does not change existing rows in the time series tables.
 It updates `daily_summary` and `mask_session` rows when `STR.edf` changes.
+It removes obsolete mask sessions for each updated summary day.
+If mask intervals exceed the reported duration, the importer retains the summary and omits those intervals.
+It allows one minute of rounding error per closed interval.
+The importer reports unavailable mask times on stderr; it does not invent replacement times.
+
+## Rebuild
+
+Earlier versions used one timezone for device therapy dates and source timestamps.
+SomnoTrace exports require separate device and export timezones.
+A normal import does not correct existing time series rows.
+The importer records both clocks in `import_clock` and rejects unknown or different clocks in existing data.
+
+Stop scheduled imports before a rebuild.
+Back up the database.
+Use a complete card archive that includes all previously imported files and summary days.
+Run the importer with `--rebuild` and the correct device offset and export timezone.
+
+```sh
+sleep-ingest --data-path /path/to/somnotrace/archive --time-zone=-05:00 --export-time-zone=America/Chicago --rebuild
+```
+
+The rebuild replaces all imported rows in one transaction.
+If any file fails, the database retains its previous rows.
+The importer rejects archives that lack known files, records, or summary days.
+It cannot detect data that earlier imports never recorded.
+A rebuild holds table locks until it finishes.
 
 ## Schema
 
 The importer creates the tables and views at start.
-There are no migrations.
-To change the schema, drop the tables and import the files again.
+It adds `daily_summary.day_start` for the UTC start of each device therapy day.
+Existing data requires a rebuild before the updated trends dashboard can use this column.
 
 ## Dashboards
 
@@ -78,7 +123,12 @@ To change the schema, drop the tables and import the files again.
 | [`dashboards/night.json`](dashboards/night.json) | One night: flow rate, pressure, leak, flow limitation, snore, and breathing, with events as annotations. |
 
 The dashboards use a PostgreSQL datasource with the UID `sleep_ingest_timescaledb`.
-The trends dashboard has a `TimeZone` variable that places each night on its date.
+Both dashboards use the Grafana display timezone, which defaults to the browser timezone.
+The time picker controls this timezone.
+The trends dashboard uses stored UTC day boundaries for daily summaries.
+The therapy times panel uses local noon boundaries in the display timezone.
+Sessions that cross local noon appear in both columns.
+Overlapping intervals and repeated clock minutes count once.
 
 ## Development
 

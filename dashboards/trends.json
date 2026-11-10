@@ -85,7 +85,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT count(*) FILTER (WHERE duration_min > 0) AS \"Nights\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()",
+          "rawSql": "SELECT count(*) FILTER (WHERE duration_min > 0) AS \"Nights\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()",
           "format": "table"
         }
       ]
@@ -140,7 +140,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT 100.0 * count(*) FILTER (WHERE duration_min >= 240) / NULLIF(max(day) - min(day) + 1, 0) AS \"Compliance\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()",
+          "rawSql": "SELECT 100.0 * count(*) FILTER (WHERE duration_min >= 240) / NULLIF(max(day) - min(day) + 1, 0) AS \"Compliance\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()",
           "format": "table"
         }
       ],
@@ -196,7 +196,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT avg(duration_min) FILTER (WHERE duration_min > 0) / 60.0 AS \"Usage\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()",
+          "rawSql": "SELECT avg(duration_min) FILTER (WHERE duration_min > 0) / 60.0 AS \"Usage\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()",
           "format": "table"
         }
       ],
@@ -252,7 +252,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT sum(ahi * duration_min) / NULLIF(sum(duration_min), 0) AS \"AHI\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()",
+          "rawSql": "SELECT sum(ahi * duration_min) / NULLIF(sum(duration_min), 0) AS \"AHI\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()",
           "format": "table"
         }
       ],
@@ -308,7 +308,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT avg(leak_95) * 60 AS \"Leak\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()",
+          "rawSql": "SELECT avg(leak_95) * 60 AS \"Leak\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()",
           "format": "table"
         }
       ],
@@ -364,7 +364,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT avg(mask_press_95) AS \"Pressure\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()",
+          "rawSql": "SELECT avg(mask_press_95) AS \"Pressure\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()",
           "format": "table"
         }
       ],
@@ -447,7 +447,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} AS time, duration_min / 60.0 AS \"Usage\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
+          "rawSql": "SELECT day_start AS time, duration_min / 60.0 AS \"Usage\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
           "format": "time_series"
         }
       ],
@@ -591,7 +591,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} AS time,\n  oai AS \"Obstructive\", hi AS \"Hypopnea\", cai AS \"Central\", uai AS \"Unclassified\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
+          "rawSql": "SELECT day_start AS time,\n  oai AS \"Obstructive\", hi AS \"Hypopnea\", cai AS \"Central\", uai AS \"Unclassified\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
           "format": "time_series"
         }
       ],
@@ -661,11 +661,11 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "WITH session AS (\n  SELECT day,\n    extract(epoch FROM (mask_on AT TIME ZONE ${TimeZone:sqlstring}) - (day + time '12:00')) / 60 AS on_min,\n    extract(epoch FROM (coalesce(mask_off, mask_on) AT TIME ZONE ${TimeZone:sqlstring}) - (day + time '12:00')) / 60 AS off_min\n  FROM mask_session\n  WHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\n), period AS (\n  SELECT day, k, sum(greatest(least(off_min, 15 * k + 15) - greatest(on_min, 15 * k), 0)) AS minutes\n  FROM session CROSS JOIN generate_series(0, 95) AS k\n  GROUP BY day, k\n), night AS (\n  SELECT day, array_agg(minutes ORDER BY k) AS m FROM period GROUP BY day\n)\n-- Grafana sorts the rows by number when all names are numbers.\nSELECT (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} AS time,\n  m[1] AS \"Noon\", m[2] AS \"12:15\", m[3] AS \"12:30\", m[4] AS \"12:45\", m[5] AS \"13:00\", m[6] AS \"13:15\", m[7] AS \"13:30\", m[8] AS \"13:45\",\n  m[9] AS \"14:00\", m[10] AS \"14:15\", m[11] AS \"14:30\", m[12] AS \"14:45\", m[13] AS \"15:00\", m[14] AS \"15:15\", m[15] AS \"15:30\", m[16] AS \"15:45\",\n  m[17] AS \"16:00\", m[18] AS \"16:15\", m[19] AS \"16:30\", m[20] AS \"16:45\", m[21] AS \"17:00\", m[22] AS \"17:15\", m[23] AS \"17:30\", m[24] AS \"17:45\",\n  m[25] AS \"18:00\", m[26] AS \"18:15\", m[27] AS \"18:30\", m[28] AS \"18:45\", m[29] AS \"19:00\", m[30] AS \"19:15\", m[31] AS \"19:30\", m[32] AS \"19:45\",\n  m[33] AS \"20:00\", m[34] AS \"20:15\", m[35] AS \"20:30\", m[36] AS \"20:45\", m[37] AS \"21:00\", m[38] AS \"21:15\", m[39] AS \"21:30\", m[40] AS \"21:45\",\n  m[41] AS \"22:00\", m[42] AS \"22:15\", m[43] AS \"22:30\", m[44] AS \"22:45\", m[45] AS \"23:00\", m[46] AS \"23:15\", m[47] AS \"23:30\", m[48] AS \"23:45\",\n  m[49] AS \"Midnight\", m[50] AS \"00:15\", m[51] AS \"00:30\", m[52] AS \"00:45\", m[53] AS \"01:00\", m[54] AS \"01:15\", m[55] AS \"01:30\", m[56] AS \"01:45\",\n  m[57] AS \"02:00\", m[58] AS \"02:15\", m[59] AS \"02:30\", m[60] AS \"02:45\", m[61] AS \"03:00\", m[62] AS \"03:15\", m[63] AS \"03:30\", m[64] AS \"03:45\",\n  m[65] AS \"04:00\", m[66] AS \"04:15\", m[67] AS \"04:30\", m[68] AS \"04:45\", m[69] AS \"05:00\", m[70] AS \"05:15\", m[71] AS \"05:30\", m[72] AS \"05:45\",\n  m[73] AS \"06:00\", m[74] AS \"06:15\", m[75] AS \"06:30\", m[76] AS \"06:45\", m[77] AS \"07:00\", m[78] AS \"07:15\", m[79] AS \"07:30\", m[80] AS \"07:45\",\n  m[81] AS \"08:00\", m[82] AS \"08:15\", m[83] AS \"08:30\", m[84] AS \"08:45\", m[85] AS \"09:00\", m[86] AS \"09:15\", m[87] AS \"09:30\", m[88] AS \"09:45\",\n  m[89] AS \"10:00\", m[90] AS \"10:15\", m[91] AS \"10:30\", m[92] AS \"10:45\", m[93] AS \"11:00\", m[94] AS \"11:15\", m[95] AS \"11:30\", m[96] AS \"11:45\"\nFROM night\nORDER BY 1",
+          "rawSql": "WITH observed AS (\n  SELECT DISTINCT t AT TIME ZONE ${__timezone:sqlstring} AS local_time\n  FROM mask_session\n  CROSS JOIN LATERAL generate_series(mask_on, mask_off - interval '1 minute', interval '1 minute') AS t\n  WHERE mask_off > mask_on\n    AND mask_on < $__timeTo()::timestamptz + interval '1 day'\n    AND mask_off > $__timeFrom()::timestamptz - interval '1 day'\n), minute AS (\n  SELECT local_time FROM observed\n  WHERE ((local_time - interval '12 hours')::date + time '12:00') AT TIME ZONE ${__timezone:sqlstring}\n    BETWEEN $__timeFrom() AND $__timeTo()\n), occupied AS (\n  SELECT (local_time - interval '12 hours')::date AS day,\n    floor(extract(epoch FROM local_time - ((local_time - interval '12 hours')::date + time '12:00')) / 900)::int AS k,\n    count(*) AS minutes\n  FROM minute\n  GROUP BY 1, 2\n), days AS (\n  SELECT t::date AS day\n  FROM generate_series(\n    (SELECT min(day)::timestamp FROM occupied),\n    (SELECT max(day)::timestamp FROM occupied), interval '1 day'\n  ) AS t\n), night AS (\n  SELECT day, array_agg(coalesce(minutes, 0) ORDER BY k) AS m\n  FROM days CROSS JOIN generate_series(0, 95) AS k\n  LEFT JOIN occupied USING (day, k)\n  GROUP BY day\n)\n-- Grafana sorts the rows by number when all names are numbers.\nSELECT (day + time '12:00') AT TIME ZONE ${__timezone:sqlstring} AS time,\n  m[1] AS \"Noon\", m[2] AS \"12:15\", m[3] AS \"12:30\", m[4] AS \"12:45\", m[5] AS \"13:00\", m[6] AS \"13:15\", m[7] AS \"13:30\", m[8] AS \"13:45\",\n  m[9] AS \"14:00\", m[10] AS \"14:15\", m[11] AS \"14:30\", m[12] AS \"14:45\", m[13] AS \"15:00\", m[14] AS \"15:15\", m[15] AS \"15:30\", m[16] AS \"15:45\",\n  m[17] AS \"16:00\", m[18] AS \"16:15\", m[19] AS \"16:30\", m[20] AS \"16:45\", m[21] AS \"17:00\", m[22] AS \"17:15\", m[23] AS \"17:30\", m[24] AS \"17:45\",\n  m[25] AS \"18:00\", m[26] AS \"18:15\", m[27] AS \"18:30\", m[28] AS \"18:45\", m[29] AS \"19:00\", m[30] AS \"19:15\", m[31] AS \"19:30\", m[32] AS \"19:45\",\n  m[33] AS \"20:00\", m[34] AS \"20:15\", m[35] AS \"20:30\", m[36] AS \"20:45\", m[37] AS \"21:00\", m[38] AS \"21:15\", m[39] AS \"21:30\", m[40] AS \"21:45\",\n  m[41] AS \"22:00\", m[42] AS \"22:15\", m[43] AS \"22:30\", m[44] AS \"22:45\", m[45] AS \"23:00\", m[46] AS \"23:15\", m[47] AS \"23:30\", m[48] AS \"23:45\",\n  m[49] AS \"Midnight\", m[50] AS \"00:15\", m[51] AS \"00:30\", m[52] AS \"00:45\", m[53] AS \"01:00\", m[54] AS \"01:15\", m[55] AS \"01:30\", m[56] AS \"01:45\",\n  m[57] AS \"02:00\", m[58] AS \"02:15\", m[59] AS \"02:30\", m[60] AS \"02:45\", m[61] AS \"03:00\", m[62] AS \"03:15\", m[63] AS \"03:30\", m[64] AS \"03:45\",\n  m[65] AS \"04:00\", m[66] AS \"04:15\", m[67] AS \"04:30\", m[68] AS \"04:45\", m[69] AS \"05:00\", m[70] AS \"05:15\", m[71] AS \"05:30\", m[72] AS \"05:45\",\n  m[73] AS \"06:00\", m[74] AS \"06:15\", m[75] AS \"06:30\", m[76] AS \"06:45\", m[77] AS \"07:00\", m[78] AS \"07:15\", m[79] AS \"07:30\", m[80] AS \"07:45\",\n  m[81] AS \"08:00\", m[82] AS \"08:15\", m[83] AS \"08:30\", m[84] AS \"08:45\", m[85] AS \"09:00\", m[86] AS \"09:15\", m[87] AS \"09:30\", m[88] AS \"09:45\",\n  m[89] AS \"10:00\", m[90] AS \"10:15\", m[91] AS \"10:30\", m[92] AS \"10:45\", m[93] AS \"11:00\", m[94] AS \"11:15\", m[95] AS \"11:30\", m[96] AS \"11:45\"\nFROM night\nORDER BY 1",
           "format": "table"
         }
       ],
-      "description": "Each column is a night, from 12:00 to 12:00 the next day. A cell shows the minutes with the mask on in its 15-minute period."
+      "description": "Each column spans local noon to the next local noon in the dashboard timezone. Each cell shows mask use within 15 minutes. Sessions that cross noon appear in both columns. Repeated clock minutes count once."
     },
     {
       "id": 17,
@@ -718,7 +718,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "WITH session AS (\n  SELECT day,\n    mask_on AT TIME ZONE ${TimeZone:sqlstring} AS mask_on,\n    coalesce(mask_off, mask_on) AT TIME ZONE ${TimeZone:sqlstring} AS mask_off\n  FROM mask_session\n  WHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\n), next_day AS (\n  SELECT mask_on - interval '1 day' AS mask_on, mask_off - interval '1 day' AS mask_off FROM session\n), span AS (\n  SELECT min(day) + time '12:00' AS first_noon, max(day) + time '12:00' AS last_noon FROM session\n)\nSELECT 100 - 200 * extract(epoch FROM\n    (SELECT sum(greatest(least(mask_off, last_noon) - greatest(mask_on, first_noon), interval '0')) FROM session)\n  + (SELECT sum(greatest(least(mask_off, last_noon) - greatest(mask_on, first_noon), interval '0')) FROM next_day)\n  - 2 * (SELECT sum(greatest(least(s.mask_off, n.mask_off, last_noon) - greatest(s.mask_on, n.mask_on, first_noon), interval '0'))\n    FROM session AS s, next_day AS n)\n) / NULLIF(extract(epoch FROM last_noon - first_noon), 0) AS \"Sleep regularity index\"\nFROM span",
+          "rawSql": "WITH observed AS (\n  SELECT DISTINCT t AT TIME ZONE ${__timezone:sqlstring} AS local_time\n  FROM mask_session\n  CROSS JOIN LATERAL generate_series(mask_on, mask_off - interval '1 minute', interval '1 minute') AS t\n  WHERE mask_off > mask_on\n    AND mask_on < $__timeTo()::timestamptz + interval '1 day'\n    AND mask_off > $__timeFrom()::timestamptz - interval '1 day'\n), minute AS (\n  SELECT local_time FROM observed\n  WHERE ((local_time - interval '12 hours')::date + time '12:00') AT TIME ZONE ${__timezone:sqlstring}\n    BETWEEN $__timeFrom() AND $__timeTo()\n), span AS (\n  SELECT min((local_time - interval '12 hours')::date) + time '12:00' AS first_noon,\n    max((local_time - interval '12 hours')::date) + time '12:00' AS last_noon\n  FROM minute\n), difference AS (\n  SELECT local_time\n  FROM (\n    SELECT local_time FROM minute\n    UNION ALL\n    SELECT local_time - interval '1 day' FROM minute\n  ) AS compared\n  GROUP BY local_time\n  HAVING count(*) = 1\n)\nSELECT 100 - 200.0 * (\n  SELECT count(*) FROM difference\n  WHERE local_time >= first_noon AND local_time < last_noon\n) / NULLIF(extract(epoch FROM last_noon - first_noon) / 60, 0) AS \"Sleep regularity index\"\nFROM span",
           "format": "table"
         }
       ],
@@ -847,7 +847,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} AS time,\n  leak_50 * 60 AS \"Median\", leak_95 * 60 AS \"95th percentile\", leak_max * 60 AS \"Maximum\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
+          "rawSql": "SELECT day_start AS time,\n  leak_50 * 60 AS \"Median\", leak_95 * 60 AS \"95th percentile\", leak_max * 60 AS \"Maximum\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
           "format": "time_series"
         }
       ],
@@ -972,7 +972,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} AS time,\n  mask_press_50 AS \"Median\", mask_press_95 AS \"95th percentile\", mask_press_max AS \"Maximum\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
+          "rawSql": "SELECT day_start AS time,\n  mask_press_50 AS \"Median\", mask_press_95 AS \"95th percentile\", mask_press_max AS \"Maximum\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
           "format": "time_series"
         }
       ]
@@ -1049,7 +1049,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} AS time, resp_rate_50 AS \"Breathing rate\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
+          "rawSql": "SELECT day_start AS time, resp_rate_50 AS \"Breathing rate\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
           "format": "time_series"
         }
       ]
@@ -1126,7 +1126,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} AS time, tid_vol_50 * 1000 AS \"Tidal volume\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
+          "rawSql": "SELECT day_start AS time, tid_vol_50 * 1000 AS \"Tidal volume\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
           "format": "time_series"
         }
       ]
@@ -1203,7 +1203,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} AS time, min_vent_50 AS \"Minute ventilation\"\nFROM daily_summary\nWHERE (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
+          "rawSql": "SELECT day_start AS time, min_vent_50 AS \"Minute ventilation\"\nFROM daily_summary\nWHERE day_start BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY 1",
           "format": "time_series"
         }
       ]
@@ -1373,7 +1373,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT d.day AS \"Night\",\n  extract(epoch FROM min(s.mask_on)) * 1000 AS \"Mask on\",\n  extract(epoch FROM max(coalesce(s.mask_off, s.mask_on))) * 1000 AS \"Mask off\",\n  count(s.slot) AS \"Sessions\",\n  d.duration_min / 60.0 AS \"Usage\",\n  d.ahi AS \"AHI\",\n  d.leak_95 * 60 AS \"Leak 95%\",\n  d.mask_press_95 AS \"Pressure 95%\",\n  extract(epoch FROM min(s.mask_on) - interval '15 minutes') * 1000 AS \"from\",\n  extract(epoch FROM max(coalesce(s.mask_off, s.mask_on)) + interval '15 minutes') * 1000 AS \"to\"\nFROM daily_summary d LEFT JOIN mask_session s USING (day)\nWHERE (d.day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\nGROUP BY d.day\nORDER BY d.day DESC",
+          "rawSql": "SELECT d.day AS \"Night\",\n  extract(epoch FROM min(s.mask_on)) * 1000 AS \"Mask on\",\n  extract(epoch FROM max(coalesce(s.mask_off, s.mask_on))) * 1000 AS \"Mask off\",\n  count(s.slot) AS \"Sessions\",\n  d.duration_min / 60.0 AS \"Usage\",\n  d.ahi AS \"AHI\",\n  d.leak_95 * 60 AS \"Leak 95%\",\n  d.mask_press_95 AS \"Pressure 95%\",\n  extract(epoch FROM min(s.mask_on) - interval '15 minutes') * 1000 AS \"from\",\n  extract(epoch FROM max(coalesce(s.mask_off, s.mask_on)) + interval '15 minutes') * 1000 AS \"to\"\nFROM daily_summary d LEFT JOIN mask_session s USING (day)\nWHERE d.day_start BETWEEN $__timeFrom() AND $__timeTo()\nGROUP BY d.day\nORDER BY d.day DESC",
           "format": "table"
         }
       ],
@@ -1443,7 +1443,7 @@
           },
           "editorMode": "code",
           "rawQuery": true,
-          "rawSql": "SELECT day AS \"Night\", key AS \"Setting\",\n  prev ->> key AS \"Before\", settings ->> key AS \"After\"\nFROM (\n  SELECT day, settings, lag(settings) OVER (ORDER BY day) AS prev\n  FROM daily_summary\n) d, jsonb_object_keys(settings) AS key\nWHERE prev IS NOT NULL AND prev -> key IS DISTINCT FROM settings -> key\n  AND (day + time '12:00') AT TIME ZONE ${TimeZone:sqlstring} BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY day DESC, key",
+          "rawSql": "SELECT day AS \"Night\", key AS \"Setting\",\n  prev ->> key AS \"Before\", settings ->> key AS \"After\"\nFROM (\n  SELECT day, day_start, settings, lag(settings) OVER (ORDER BY day) AS prev\n  FROM daily_summary\n) d, jsonb_object_keys(settings) AS key\nWHERE prev IS NOT NULL AND prev -> key IS DISTINCT FROM settings -> key\n  AND day_start BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY day DESC, key",
           "format": "table"
         }
       ],
@@ -1456,19 +1456,7 @@
     "sleep"
   ],
   "templating": {
-    "list": [
-      {
-        "current": {
-          "text": "America/Chicago",
-          "value": "America/Chicago"
-        },
-        "description": "Time zone of the device clock. It places each night on its date.",
-        "label": "Time zone",
-        "name": "TimeZone",
-        "query": "America/Chicago",
-        "type": "textbox"
-      }
-    ]
+    "list": []
   },
   "time": {
     "from": "now-90d",

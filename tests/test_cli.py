@@ -4,7 +4,7 @@ from sleep_ingest import cli
 from tests import synthetic
 
 NO_DATABASE = ["--database-url", "host=/nonexistent"]
-ZONE = ["--time-zone", "America/Chicago"]
+ZONE = ["--time-zone=-05:00"]
 
 
 def test_help_exits_with_zero(capsys):
@@ -31,22 +31,31 @@ def test_data_path_defaults_to_input_dir(monkeypatch, tmp_path, capsys):
     assert "Identification.json" in capsys.readouterr().err
 
 
-def test_time_zone_is_required(monkeypatch, tmp_path):
-    monkeypatch.delenv("TZ", raising=False)
-
-    with pytest.raises(SystemExit) as stop:
-        cli.run(["--data-path", str(tmp_path), *NO_DATABASE])
-
-    assert stop.value.code == 2
-
-
-def test_time_zone_defaults_to_tz(monkeypatch, tmp_path, capsys):
-    monkeypatch.setenv("TZ", "Mars/Olympus_Mons")
+def test_device_offset_ignores_tz(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("TZ", "America/Chicago")
     root = synthetic.write_card(tmp_path)
     synthetic.write(root, "STR.edf", b"")
 
     assert cli.run(["--data-path", str(root), *NO_DATABASE]) == 2
-    assert "Mars/Olympus_Mons" in capsys.readouterr().err
+    assert "database:" in capsys.readouterr().err
+
+
+def test_missing_device_offset_stops_before_database(tmp_path, capsys):
+    root = synthetic.write_card(tmp_path)
+    synthetic.write(root, "STR.edf", b"")
+    (root / "SETTINGS" / "CurrentSettings.json").unlink()
+
+    assert cli.run(["--data-path", str(root), *NO_DATABASE]) == 2
+    assert "CurrentSettings.json" in capsys.readouterr().err
+
+
+def test_explicit_offset_works_without_settings(tmp_path, capsys):
+    root = synthetic.write_card(tmp_path)
+    synthetic.write(root, "STR.edf", b"")
+    (root / "SETTINGS" / "CurrentSettings.json").unlink()
+
+    assert cli.run(["--data-path", str(root), *ZONE, *NO_DATABASE]) == 2
+    assert "database:" in capsys.readouterr().err
 
 
 def test_bad_data_path_stops_before_the_database(tmp_path, capsys):
@@ -62,7 +71,7 @@ def test_unknown_time_zone_stops_before_the_database(tmp_path, capsys):
 
     args = ["--data-path", str(root), "--time-zone", "Mars/Olympus_Mons"]
     assert cli.run([*args, *NO_DATABASE]) == 2
-    assert "Mars/Olympus_Mons" in capsys.readouterr().err
+    assert "fixed UTC offset" in capsys.readouterr().err
 
 
 def test_describe_gives_rows_or_the_error():

@@ -17,7 +17,7 @@ DATASOURCE = {
 VARIABLES = {
     "$__timeFrom()": "'2026-09-20T00:00:00Z'",
     "$__timeTo()": "'2026-09-30T00:00:00Z'",
-    "${TimeZone:sqlstring}": "'America/Chicago'",
+    "${__timezone:sqlstring}": "'America/Chicago'",
 }
 
 
